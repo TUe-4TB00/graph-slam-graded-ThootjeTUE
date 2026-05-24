@@ -51,15 +51,19 @@ def optimize(graph, initial_estimate):
 def minimize_marginals(graph, initial_estimate, pose_options):
     #TODO: try different pose and landmark options here, and keep the one with the lowest sum of marginals.
     best_pose = "d"      # chosen pose option
-    best_landmark = 1   # chosen landmark (1 or 2)
+    best_landmark = 1    # chosen landmark (1 or 2)
     pose_5 = pose_options[best_pose]
-    graph, initial_estimate = add_pose(graph, initial_estimate, pose_5)
-    result = optimize(graph, initial_estimate)
-    graph = add_landmark_measurement(graph, result, pose_5, best_landmark)
-    result = optimize(graph, initial_estimate)
+    
+    temp_graph = gtsam.NonlinearFactorGraph(graph)
+    temp_init = gtsam.Values(initial_estimate)
+    
+    temp_graph, temp_init = add_pose(temp_graph, temp_init, pose_5)
+    result = optimize(temp_graph, temp_init)
+    temp_graph = add_landmark_measurement(temp_graph, result, pose_5, best_landmark)
+    result = optimize(temp_graph, temp_init)
 
     # TODO: Calculate marginal covariances for the relevant variables and visualize the updated factor graph with covariances
-    marginals = gtsam.Marginals(graph, result)
+    marginals = gtsam.Marginals(temp_graph, result)
     # The sum of the marginals for each landmark can be computed using marginals.marginalCovariance(L(x)).sum()
     sum_of_marginals = marginals.marginalCovariance(L(1)).sum() + marginals.marginalCovariance(L(2)).sum()
 
@@ -70,20 +74,52 @@ def minimize_marginals(graph, initial_estimate, pose_options):
 
 def minimize_errors(graph, initial_estimate, pose_options):
     #TODO: try different pose and landmark options here, and keep the one with the lowest resulting error.
-    best_pose = "a"      # chosen pose option
-    best_landmark = 1    # chosen landmark (1 or 2)
-    pose_5 = pose_options[best_pose]
-    graph, initial_estimate = add_pose(graph, initial_estimate, pose_5)
-    result = optimize(graph, initial_estimate)
-    graph = add_landmark_measurement(graph, result, pose_5, best_landmark)
-    result = optimize(graph, initial_estimate)
+    ground_truth = {
+        X(1): gtsam.Pose2(0.0, 0.0, 0.0),
+        X(2): gtsam.Pose2(2.0, 0.0, 0.0),
+        X(3): gtsam.Pose2(4.0, 0.0, 0.0)
+    }
 
-    # TODO: create a list of errors (each index corresponds to a pose) and add the error of each pose to the list
-    list_of_errors = [graph.error(result)]
-    # TODO: compute the sum of the errors and return it along with the best pose and landmark
-    sum_of_errors = list_of_errors[0]
+    best_pose = None
+    best_landmark = None
+    min_sum_of_errors = float('inf')
 
-    print("\nError score for pose [{}] & landmark [{}]".format(best_pose, best_landmark))
-    print("Totale Graph Error: {:.6f}".format(sum_of_errors))
+    for pose_key, pose_5 in pose_options.items():
+        for landmark in [1, 2]:
+            
+            temp_graph = gtsam.NonlinearFactorGraph(graph)
+            temp_init = gtsam.Values(initial_estimate)
+            
+            temp_graph, temp_init = add_pose(temp_graph, temp_init, pose_5)
+            result = optimize(temp_graph, temp_init)
+            
+            temp_graph = add_landmark_measurement(temp_graph, result, pose_5, landmark)
+            final_result = optimize(temp_graph, temp_init)
+
+            # TODO: create a list of errors (each index corresponds to a pose) and add the error of each pose to the list
+            list_of_errors = []
+            
+            for x_key in [X(1), X(2), X(3)]:
+                optimized_pose = final_result.atPose2(x_key)
+                gt_pose = ground_truth[x_key]
+                
+                dx = optimized_pose.x() - gt_pose.x()
+                dy = optimized_pose.y() - gt_pose.y()
+                error = np.sqrt(dx**2 + dy**2)
+                
+                list_of_errors.append(error)
+
+            # TODO: compute the sum of the errors and return it along with the best pose and landmark
+            sum_of_errors = sum(list_of_errors)
+            
+            print(f"Pose [{pose_key}] & Landmark [{landmark}] -> Total Position Error: {sum_of_errors:.6f}")
+            
+            if sum_of_errors < min_sum_of_errors:
+                min_sum_of_errors = sum_of_errors
+                best_pose = pose_key
+                best_landmark = landmark
+
+    print(f"\nBest accuracy result")
+    print(f"Best Option: Pose [{best_pose}] with Landmark [{best_landmark}] (Error: {min_sum_of_errors:.6f})")
 
     return best_pose, best_landmark, sum_of_errors 
